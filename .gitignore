@@ -1,0 +1,10 @@
+# Secrets
+**/secrets.h
+include/secrets.h
+
+# PlatformIO
+.pio
+.pio/
+**/.pio
+**/build
+**/.vscode
