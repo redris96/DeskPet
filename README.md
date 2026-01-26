@@ -4,7 +4,7 @@ A custom smartwatch firmware for the **Lilygo T-Encoder-Pro**, featuring a virtu
 
 ## 🌟 Base Project & Credits
 This project is built upon the excellent work of **nikthefix**:
-*   **Base Project**: [SquareLine Studio 1.4.1 Smart Watch Demo](https://github.com/nikthefix)
+*   **Base Project**: [Lilygo_Support_T_Encoder_Pro_Smart_Watch](https://github.com/nikthefix/Lilygo_Support_T_Encoder_Pro_Smart_Watch)
 *   **Hardware**: Lilygo T-Encoder-Pro (ESP32-S3 + AMOLED Display)
 *   **Display Driver**: Custom SH8601 driver implementation
 
