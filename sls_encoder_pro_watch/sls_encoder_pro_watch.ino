@@ -117,6 +117,7 @@ int xTemp = 0;
 SemaphoreHandle_t xNetworkMutex;
 
 void setupWiFi_Internal() {
+  Serial.println("NetTask: Entering setupWiFi_Internal");
   Serial.printf("NetTask: Connecting to %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // Background task can block slightly without hurting UI
@@ -135,15 +136,21 @@ void setupWiFi_Internal() {
     configTime(0, 0, "pool.ntp.org");
     setenv("TZ", "IST-5:30", 1);
     tzset();
+    Serial.println("NetTask: NTP configTime called");
   }
+  Serial.println("NetTask: Leaving setupWiFi_Internal");
 }
 
 void updateWeather_Internal() {
-  if (WiFi.status() != WL_CONNECTED)
+  Serial.println("NetTask: Entering updateWeather_Internal");
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("NetTask: WiFi not connected, skipping weather update");
     return;
+  }
 
   HTTPClient http;
   http.begin(weather_url);
+  http.setTimeout(2000); // Strict timeout for network task too
   int httpCode = http.GET();
 
   if (httpCode > 0) {
@@ -164,6 +171,7 @@ void updateWeather_Internal() {
     }
   }
   http.end();
+  Serial.println("NetTask: Leaving updateWeather_Internal");
 }
 
 // Task 11: Network Task Function (Core 0)
@@ -290,9 +298,9 @@ void update_time_ui() {
   }
 
   // 2. Get System Time (Defensive Fix)
-  struct tm timeinfo = {0}; // Initialize to zero
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("getLocalTime() Failed - skipping update");
+  struct tm timeinfo = {0};          // Initialize to zero
+  if (!getLocalTime(&timeinfo, 0)) { // Task 17: Non-blocking time fetch
+    // Serial.println("getLocalTime() Failed - skipping update");
     return;
   }
 
@@ -826,6 +834,16 @@ void setup() {
 }
 
 void loop() {
+  // Task 18: Service UI first/always
+  lv_timer_handler();
+
+  // Task 16: Heartbeat
+  static unsigned long last_heartbeat = 0;
+  if (millis() - last_heartbeat > 5000) {
+    Serial.printf("UI Core Heartbeat: %lu\n", millis());
+    last_heartbeat = millis();
+  }
+
   // 1. Button Logic (Reader Toggle)
   static bool last_btn_state = HIGH;
   static unsigned long last_btn_time = 0;
@@ -930,8 +948,8 @@ void loop() {
   }
 
   // 3. Update Engines & Maintenance
-  lv_timer_handler();
-  delay(5);
+  // lv_timer_handler(); // Moved to top
+  // delay(5); // Remove potential jitter maker
   pet.update();
   reader.update();
 
