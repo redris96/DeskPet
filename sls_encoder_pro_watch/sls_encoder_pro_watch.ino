@@ -482,15 +482,12 @@ lv_obj_t *ui_pet_screen;
 uint8_t global_brightness = 200;
 bool is_settings_mode = false;
 
-// Forward declarations
-static void openSettings();
+lv_obj_t *ui_brightness_slider = NULL;
 
-// --- Brightness Logic ---
-
-static void brightness_arc_event_cb(lv_event_t *e) {
-  lv_obj_t *arc = lv_event_get_target(e);
-  int value = (int)lv_arc_get_value(arc);
-  // Convert 0-100% to 10-255 (Restricted Range Task 2)
+static void brightness_slider_event_cb(lv_event_t *e) {
+  lv_obj_t *slider = lv_event_get_target(e);
+  int value = (int)lv_slider_get_value(slider);
+  // Map 0-100 to 10-255
   global_brightness = map(value, 0, 100, 10, 255);
   lcd_brightness(global_brightness);
   if (ui_volume_percent) {
@@ -502,22 +499,21 @@ static void exit_settings_cb(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_CLICKED) {
     is_settings_mode = false;
-    encoder_has_focus = false; // Task 1: Release Focus
-    // The original callback in ui.c will handle the screen change to
-    // ui_watch_digital
+    encoder_has_focus = false;
+    // The original callback in ui.c will handle the screen change
   }
 }
 
 static void openSettings() {
   is_settings_mode = true;
-  encoder_has_focus = true; // Task 1: Grab Focus
+  encoder_has_focus = true;
 
-  // Configure ui_call screen components for Brightness Settings
   if (ui_call) {
+    // 1. Header Cleanup
     if (ui_avatar_label) {
       lv_label_set_text(ui_avatar_label, "Brightness");
       lv_obj_clear_flag(ui_avatar_label, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_y(ui_avatar_label, -140); // Move title up
+      lv_obj_set_y(ui_avatar_label, -140);
     }
     if (ui_avatar)
       lv_obj_add_flag(ui_avatar, LV_OBJ_FLAG_HIDDEN);
@@ -525,58 +521,62 @@ static void openSettings() {
       lv_obj_add_flag(ui_call_time, LV_OBJ_FLAG_HIDDEN);
     if (ui_mute)
       lv_obj_add_flag(ui_mute, LV_OBJ_FLAG_HIDDEN);
-
-    // Hide/Disable other buttons to prevent accidental clicks while sliding arc
     if (ui_button_top2)
       lv_obj_add_flag(ui_button_top2, LV_OBJ_FLAG_HIDDEN);
 
+    // 2. Volume Group Setup
     if (ui_volume_group) {
       lv_obj_clear_flag(ui_volume_group, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_align(ui_volume_group, LV_ALIGN_CENTER); // Center the group
+      lv_obj_set_align(ui_volume_group, LV_ALIGN_CENTER);
       lv_obj_set_x(ui_volume_group, 5);
       lv_obj_set_y(ui_volume_group, 45);
     }
 
+    // 3. Hide Old Arc, Create New Slider
     if (ui_volume_arc) {
-      int perc = map(global_brightness, 10, 255, 0, 100);
-      lv_arc_set_value(ui_volume_arc, perc);
+      lv_obj_add_flag(ui_volume_arc, LV_OBJ_FLAG_HIDDEN);
+    }
 
-      // Task 2: UI Overhaul
-      lv_obj_set_style_arc_width(ui_volume_arc, 25,
-                                 LV_PART_MAIN); // Thicker background
-      lv_obj_set_style_arc_width(ui_volume_arc, 25,
-                                 LV_PART_INDICATOR); // Thicker indicator
+    if (!ui_brightness_slider) {
+      ui_brightness_slider = lv_slider_create(ui_volume_group);
+      lv_obj_set_size(ui_brightness_slider, 200, 40); // Height 40 for touch
+      lv_obj_align(ui_brightness_slider, LV_ALIGN_CENTER, 0, 20);
 
-      // Make Knob Visible & Grabbable
-      lv_obj_set_style_bg_opa(ui_volume_arc, 255, LV_PART_KNOB);
-      lv_obj_set_style_bg_color(ui_volume_arc, lv_color_hex(0xFFFFFF),
-                                LV_PART_KNOB);
-      lv_obj_set_style_pad_all(ui_volume_arc, 5,
-                               LV_PART_KNOB); // Padding acting as size increase
-      lv_obj_set_ext_click_area(ui_volume_arc, 30); // Large touch target
+      // Modern Aesthetics
+      lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_hex(0x2d2d2d),
+                                LV_PART_MAIN); // Dark grey background
+      lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_hex(0x00D6E3),
+                                LV_PART_INDICATOR); // Cyan indicator
+      lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_white(),
+                                LV_PART_KNOB); // White knob
+      lv_obj_set_style_pad_all(ui_brightness_slider, 10,
+                               LV_PART_KNOB); // Larger knob
 
-      if (ui_volume_percent) {
-        lv_label_set_text_fmt(ui_volume_percent, "%d%%", perc);
-        lv_obj_set_align(ui_volume_percent, LV_ALIGN_CENTER);
-        lv_obj_set_x(ui_volume_percent, 0);
-        lv_obj_set_y(ui_volume_percent, 0);
-      }
-      if (ui_volume_image)
-        lv_obj_add_flag(ui_volume_image,
-                        LV_OBJ_FLAG_HIDDEN); // Hide volume icon
+      // Touch Optimization (Fat Fingers)
+      lv_obj_set_ext_click_area(ui_brightness_slider, 30); // Hit area expansion
 
-      // Clean old events and add our brightness handler
-      lv_obj_remove_event_cb(ui_volume_arc, NULL); // Remove all
-      lv_obj_add_event_cb(ui_volume_arc, brightness_arc_event_cb,
+      lv_obj_add_event_cb(ui_brightness_slider, brightness_slider_event_cb,
                           LV_EVENT_VALUE_CHANGED, NULL);
     }
+
+    int current_perc = map(global_brightness, 10, 255, 0, 100);
+    lv_slider_set_value(ui_brightness_slider, current_perc, LV_ANIM_OFF);
+
+    if (ui_volume_percent) {
+      lv_label_set_text_fmt(ui_volume_percent, "%d%%", current_perc);
+      lv_obj_set_align(ui_volume_percent, LV_ALIGN_CENTER);
+      lv_obj_set_x(ui_volume_percent, 0);
+      lv_obj_set_y(ui_volume_percent, -30); // Move above slider
+    }
+
+    if (ui_volume_image)
+      lv_obj_add_flag(ui_volume_image, LV_OBJ_FLAG_HIDDEN);
 
     if (ui_button_down2) {
       lv_obj_add_event_cb(ui_button_down2, exit_settings_cb, LV_EVENT_CLICKED,
                           NULL);
     }
 
-    // Switch to the screen
     _ui_screen_change(&ui_call, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
                       &ui_call_screen_init);
   }
@@ -874,19 +874,16 @@ void loop() {
       last_handled_pos = current_pos;
     }
   }
-  // -> Settings Focus Mode (Task 3: Hardware Sync)
+  // -> Settings Focus Mode (Sync with Slider)
   else if (encoder_has_focus) {
-    if (is_settings_mode && ui_volume_arc) {
+    if (is_settings_mode && ui_brightness_slider) {
       if (current_pos != last_handled_pos) {
         int diff = (current_pos - last_handled_pos);
-        int val = lv_arc_get_value(ui_volume_arc);
+        int val = lv_slider_get_value(ui_brightness_slider);
         val += (diff * 5); // 5% per click
-        if (val > 100)
-          val = 100;
-        if (val < 0)
-          val = 0;
+        val = constrain(val, 0, 100);
 
-        lv_arc_set_value(ui_volume_arc, val);
+        lv_slider_set_value(ui_brightness_slider, val, LV_ANIM_OFF);
 
         // Update Brightness Immediately
         global_brightness = map(val, 0, 100, 10, 255);
@@ -898,7 +895,6 @@ void loop() {
         last_handled_pos = current_pos;
       }
     } else {
-      // Other focus modes?
       last_handled_pos = current_pos; // Absorb events
     }
   }
