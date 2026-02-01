@@ -335,13 +335,16 @@ void updateNetworkUI() {
                             "Temp: %d C", temp);
     }
     if (ui_degree_7) {
-      lv_obj_set_style_text_font(ui_degree_7, &ui_font_Number_extra, 0);
-      lv_label_set_text_fmt(ui_degree_7, "%d", temp);
+      // Task 75: Fix Analog Watch Face Weather Text Overflow
+      lv_obj_set_style_text_font(ui_degree_7, &ui_font_Title, 0);
+      lv_label_set_text_fmt(ui_degree_7, "%d°", temp);
     }
     if (ui_label_degree) {
       lv_obj_set_style_text_font(ui_label_degree, &ui_font_Number_extra, 0);
       lv_label_set_text_fmt(ui_label_degree, "%d", temp);
     }
+    // Task 25: Fix Digital Clock Weather Group (Left Widget)
+    // Task 25: Fix Digital Clock Weather Group (Left Widget)
     // Task 25: Fix Digital Clock Weather Group (Left Widget)
     if (ui_weather_group_1) {
       // Child 0 is the group container itself in some generated code,
@@ -350,6 +353,8 @@ void updateNetworkUI() {
       lv_obj_t *degree_label =
           ui_comp_get_child(ui_weather_group_1, UI_COMP_WEATHERGROUP1_DEGREE_1);
       if (degree_label) {
+        // Task 74: Fix Text Overflow (Use Title font which has symbols)
+        lv_obj_set_style_text_font(degree_label, &ui_font_Title, 0);
         lv_label_set_text_fmt(degree_label, "%d°", temp);
       }
     }
