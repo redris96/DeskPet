@@ -86,6 +86,50 @@ volatile int encoderPos = 0;
 bool encoder_has_focus = false; // Task 1: Focus Flag
 lv_obj_t *wifi_ind;             // Moved Global
 
+const char *ssid = WIFI_SSID;
+const char *password = WIFI_PASSWORD;
+
+// Global Time Settings - REMOVED NTP
+bool is_time_configured = false; // Task 37: Time State Flag
+
+// Task 41: HTTP Time Sync Function
+// Task 61: HTTP Time Sync Function (Re-implemented)
+void syncTimeViaHTTP() {
+  Serial.println("NetTask: Fetching time from WorldTimeAPI...");
+  HTTPClient http;
+  // Use a reliable JSON time API
+  http.begin("http://worldtimeapi.org/api/timezone/Asia/Kolkata");
+  http.setTimeout(3000);
+
+  int httpCode = http.GET();
+  if (httpCode > 0) {
+    String payload = http.getString();
+    JsonDocument doc;
+    if (!deserializeJson(doc, payload)) {
+      long unixtime = doc["unixtime"];
+
+      if (unixtime > 1600000000) { // Valid Epoch (> 2020)
+        // Task 62: Inject Time
+        struct timeval tv;
+        tv.tv_sec = unixtime;
+        tv.tv_usec = 0;
+        settimeofday(&tv, NULL);
+
+        Serial.printf("NetTask: HTTP Time Sync Success! Epoch: %ld\n",
+                      unixtime);
+        is_time_configured = true;
+      } else {
+        Serial.println("NetTask: Invalid Epoch from API");
+      }
+    } else {
+      Serial.println("NetTask: Failed to parse Time JSON");
+    }
+  } else {
+    Serial.printf("NetTask: HTTP Time Request Failed: %d\n", httpCode);
+  }
+  http.end();
+}
+
 // Forward declarations
 void perform_screen_switch(int index);
 
@@ -116,29 +160,22 @@ String xWeatherDesc = "--";
 int xTemp = 0;
 SemaphoreHandle_t xNetworkMutex;
 
+// Task 11: WiFi Setup Function (Non-blocking)
 void setupWiFi_Internal() {
-  Serial.println("NetTask: Entering setupWiFi_Internal");
-  Serial.printf("NetTask: Connecting to %s\n", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  // Background task can block slightly without hurting UI
-  int timeout = 0;
-  while (WiFi.status() != WL_CONNECTED && timeout < 20) {
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    timeout++;
+  Serial.println("NetTask: Connecting to WiFi...");
+  // Task 65: Credential Check (Logs Removed)
+  /*
+  Serial.print("Attempting to connect to: ");
+  Serial.println(ssid);
+  if (password) {
+    Serial.println("Password length: " + String(strlen(password)));
+  } else {
+    Serial.println("Password is NULL!");
   }
+  */
+  WiFi.begin(ssid, password);
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("NetTask: Connected!");
-    if (xSemaphoreTake(xNetworkMutex, portMAX_DELAY)) {
-      xWifiConnected = true;
-      xSemaphoreGive(xNetworkMutex);
-    }
-    configTime(0, 0, "pool.ntp.org");
-    setenv("TZ", "IST-5:30", 1);
-    tzset();
-    Serial.println("NetTask: NTP configTime called");
-  }
-  Serial.println("NetTask: Leaving setupWiFi_Internal");
+  // Task 38: Removed configTime from here (Too Early)
 }
 
 void updateWeather_Internal() {
@@ -176,6 +213,18 @@ void updateWeather_Internal() {
 
 // Task 11: Network Task Function (Core 0)
 void networkTask(void *parameter) {
+  Serial.println("NetTask: Started");
+
+  // Task 66: WiFi Event Handler (Logs Removed)
+  /*
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    Serial.printf("WiFi Event: %d\n", event);
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      Serial.printf("Reason: %d\n", info.wifi_sta_disconnected.reason);
+    }
+  });
+  */
+
   setupWiFi_Internal();
 
   // Initial Weather Fetch
@@ -192,17 +241,35 @@ void networkTask(void *parameter) {
     // Reconnect if needed
     if (!connected) {
       WiFi.reconnect();
+      is_time_configured = false; // Reset on Disconnect
       vTaskDelay(5000 / portTICK_PERIOD_MS);
+    }
+    // Task 69: Restore Standard NTP
+    else if (connected && !is_time_configured) {
+      Serial.println("NetTask: WiFi Connected! Starting Standard NTP...");
+      // Task 71: Kickstart Weather
+      updateWeather_Internal();
+
+      // IST = UTC + 5:30 (19800 seconds)
+      configTime(19800, 0, "pool.ntp.org", "time.google.com");
+      is_time_configured = true;
     }
 
     // Update Weather periodically (every 30 mins)
-    // Simple counter approach suitable for task
     static int ticks = 0;
     ticks++;
     if (ticks >= 1800) { // 1800 * 1s = 30 mins
       updateWeather_Internal();
       ticks = 0;
     }
+
+    // Heartbeat for Debugging (Disabled)
+    /*
+    if (ticks % 5 == 0) {
+      Serial.printf("NetTask: Alive | WiFi Status: %d | Time Configured: %d\n",
+                    WiFi.status(), is_time_configured);
+    }
+    */
 
     vTaskDelay(1000 / portTICK_PERIOD_MS); // 1 sec loop
   }
@@ -218,8 +285,12 @@ void updateNetworkUI() {
   }
 
   if (wifi_ind) {
-    lv_obj_set_style_bg_color(
-        wifi_ind, connected ? lv_color_white() : lv_color_hex(0x555555), 0);
+    // Task 67: Red/Green Indicator
+    if (connected) {
+      lv_obj_set_style_bg_color(wifi_ind, lv_color_hex(0x00FF00), 0); // Green
+    } else {
+      lv_obj_set_style_bg_color(wifi_ind, lv_color_hex(0xFF0000), 0); // Red
+    }
   }
 
   // 2. Update Weather Data if available
@@ -271,12 +342,23 @@ void updateNetworkUI() {
       lv_obj_set_style_text_font(ui_label_degree, &ui_font_Number_extra, 0);
       lv_label_set_text_fmt(ui_label_degree, "%d", temp);
     }
-    Serial.println("UI: Weather Updated from Background Task");
+    // Task 25: Fix Digital Clock Weather Group (Left Widget)
+    if (ui_weather_group_1) {
+      // Child 0 is the group container itself in some generated code,
+      // we use the helper macros to be safe.
+      // UI_COMP_WEATHERGROUP1_DEGREE_1 is the label
+      lv_obj_t *degree_label =
+          ui_comp_get_child(ui_weather_group_1, UI_COMP_WEATHERGROUP1_DEGREE_1);
+      if (degree_label) {
+        lv_label_set_text_fmt(degree_label, "%d°", temp);
+      }
+    }
+    // Serial.println("UI: Weather Updated from Background Task");
   }
 }
 
-const char *ssid = WIFI_SSID;
-const char *password = WIFI_PASSWORD;
+// const char *ssid = WIFI_SSID; // Moved to top
+// const char *password = WIFI_PASSWORD; // Moved to top
 // lv_obj_t *wifi_ind; // Moved to top
 
 // Old setupWiFi and wifi_manager removed (replaced by networkTask)
@@ -297,18 +379,21 @@ void update_time_ui() {
     }
   }
 
-  // 2. Get System Time (Defensive Fix)
-  struct tm timeinfo = {0};          // Initialize to zero
-  if (!getLocalTime(&timeinfo, 0)) { // Task 17: Non-blocking time fetch
-    // Serial.println("getLocalTime() Failed - skipping update");
-    return;
+  // 2. Get System Time (Passive Logic Task 35)
+  struct tm timeinfo = {0};
+
+  // Just ask for time. If it fails, use system time (likely 1970).
+  // This ensures the animation loop NEVER stops.
+  if (!getLocalTime(&timeinfo, 10)) {
+    time_t now;
+    time(&now);
+    localtime_r(&now, &timeinfo);
   }
 
-  // Garbage Year Check (NTP sometimes returns 1970)
-  if (timeinfo.tm_year < 120) { // < Year 2020
-    Serial.println("System time not sync'd (pre-2020) - skipping UI update");
-    return;
-  }
+  // Task 70: UI Debugging (Disabled)
+  // Print exactly what the UI *should* be seeing
+  // Serial.printf("UI Update: %02d:%02d:%02d (Day: %d)\n", timeinfo.tm_hour,
+  //               timeinfo.tm_min, timeinfo.tm_sec, timeinfo.tm_mday);
 
   char buf[32];
 
@@ -539,21 +624,26 @@ static void openSettings() {
 
     if (!ui_brightness_slider) {
       ui_brightness_slider = lv_slider_create(ui_volume_group);
-      lv_obj_set_size(ui_brightness_slider, 200, 40); // Height 40 for touch
-      lv_obj_align(ui_brightness_slider, LV_ALIGN_CENTER, 0, 20);
+      lv_obj_set_size(ui_brightness_slider, 200,
+                      10); // Task 24: Sleek Height 10px
+      lv_obj_align(ui_brightness_slider, LV_ALIGN_CENTER, 0,
+                   0); // Task 24: Centered (y=0)
 
-      // Modern Aesthetics
+      // Modern Aesthetics (Red Theme)
       lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_hex(0x2d2d2d),
                                 LV_PART_MAIN); // Dark grey background
-      lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_hex(0x00D6E3),
-                                LV_PART_INDICATOR); // Cyan indicator
+      lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_hex(0xFF0000),
+                                LV_PART_INDICATOR); // Task 24: Red Indicator
+
+      // Knob Styling (Sleek White)
       lv_obj_set_style_bg_color(ui_brightness_slider, lv_color_white(),
-                                LV_PART_KNOB); // White knob
-      lv_obj_set_style_pad_all(ui_brightness_slider, 10,
-                               LV_PART_KNOB); // Larger knob
+                                LV_PART_KNOB);
+      lv_obj_set_style_pad_all(ui_brightness_slider, 2,
+                               LV_PART_KNOB); // Smaller padding for sleek look
 
       // Touch Optimization (Fat Fingers)
-      lv_obj_set_ext_click_area(ui_brightness_slider, 30); // Hit area expansion
+      lv_obj_set_ext_click_area(ui_brightness_slider,
+                                40); // Task 24: Massive Hit Area
 
       lv_obj_add_event_cb(ui_brightness_slider, brightness_slider_event_cb,
                           LV_EVENT_VALUE_CHANGED, NULL);
@@ -818,6 +908,7 @@ void setup() {
   lv_timer_handler();
 
   // Create Mutex and Network Task
+  Serial.println("setup: Creating Network Task...");
   xNetworkMutex = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(networkTask,   // Function
                           "NetworkTask", // Name
