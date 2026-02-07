@@ -56,6 +56,7 @@ Refactor to make compatible with LVGL 9.1 (proving problematic at last attempt)
 #include "sh8601.h"
 #include "time.h"
 #include "ui.h"
+#include "ui/ui_calendar.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -75,8 +76,27 @@ ReaderEngine reader;
 BleMouse bleMouse("DeskPet Knob", "Antigravity", 100);
 
 // --- Global State ---
-int current_app_index = 0; // 0=Clock, 1=Analog, 2=Pet, 3=Weather, 4=Reader
-const int MAX_APPS = 5;
+int current_app_index = 0; // 0=Digital, 1=Analog, 2=Pet, 3=Weather1,
+                           // 4=Weather2, 5=Reader, 6=Calendar
+const int MAX_APPS = 7;
+
+// ... (intermediate code skipped) ...
+
+// Order of screens
+lv_obj_t *screens[] = {
+    NULL, // ui_watch_digital
+    NULL, // ui_watch_analog
+    NULL, // ui_pet_screen
+    NULL, // ui_weather_1
+    NULL, // ui_weather_2
+    NULL, // ui_calendar_screen (New)
+    NULL, // ui_blood_oxy
+    NULL, // ui_ecg
+    NULL, // ui_blood_pressure
+    NULL, // ui_measuring
+    NULL, // ui_reader_screen (added dynamically)
+    NULL  // ui_call
+};
 
 // Shared UI pointer for Reader Screen
 lv_obj_t *ui_reader_screen = NULL;
@@ -395,6 +415,18 @@ void update_time_ui() {
     localtime_r(&now, &timeinfo);
   }
 
+  // Task 101: Auto-Sync Calendar to System Time (Jump to current month)
+  static bool calendar_synced = false;
+  if (!calendar_synced && timeinfo.tm_year > 120) { // Year > 2020
+    lv_calendar_set_today_date(ui_calendar, timeinfo.tm_year + 1900,
+                               timeinfo.tm_mon + 1, timeinfo.tm_mday);
+    lv_calendar_set_showed_date(ui_calendar, timeinfo.tm_year + 1900,
+                                timeinfo.tm_mon + 1);
+    updateCalendarTitle(); // Refresh the dynamic title
+    calendar_synced = true;
+    Serial.println("Calendar Synced to System Time.");
+  }
+
   // Task 70: UI Debugging (Disabled)
   // Print exactly what the UI *should* be seeing
   // Serial.printf("UI Update: %02d:%02d:%02d (Day: %d)\n", timeinfo.tm_hour,
@@ -461,6 +493,10 @@ void update_time_ui() {
     if (ui_year2) {
       lv_label_set_text_fmt(ui_year2, "%d", 1900 + timeinfo.tm_year);
     }
+
+    // Update Calendar Today Highlight
+    ui_calendar_update_today(1900 + timeinfo.tm_year, timeinfo.tm_mon + 1,
+                             timeinfo.tm_mday);
 
     // Update City/Date labels on weather screens
     if (ui_city_gruop_1) {
@@ -861,13 +897,11 @@ void setup() {
   pet.init(ui_pet_screen);
 
   Serial.println("Creating Reader App Screen...");
-  reader.init(NULL); // It creates its own internal screen if parent is NULL?
-  // Wait, ReaderEngine::init uses parent directly.
-  // We need a screen container for it like pet_screen
-  // Let's modify ReaderEngine::init briefly or just create a screen here
-  // ReaderEngine above takes a parent.
   ui_reader_screen = lv_obj_create(NULL);
   reader.init(ui_reader_screen);
+
+  Serial.println("Creating Calendar App Screen...");
+  ui_calendar_screen_init(); // Pre-initialize Calendar
 
   // Repurpose Call Button to Settings on Digital Watch
   if (ui_button_top) {
@@ -950,6 +984,8 @@ void loop() {
       if (btn_state == LOW) {            // Press
         if (reader.getIsActive()) {
           reader.onButtonPress();
+        } else if (lv_scr_act() == ui_calendar_screen) {
+          encoder_has_focus = !encoder_has_focus;
         }
       }
       last_btn_time = millis();
@@ -990,6 +1026,37 @@ void loop() {
 
         last_handled_pos = current_pos;
       }
+    } else if (lv_scr_act() == ui_calendar_screen) {
+      if (current_pos != last_handled_pos) {
+        if (current_pos > last_handled_pos) {
+          // Next Month
+          const lv_calendar_date_t *d =
+              lv_calendar_get_showed_date(ui_calendar);
+          lv_calendar_date_t new_date = *d;
+          new_date.month++;
+          if (new_date.month > 12) {
+            new_date.month = 1;
+            new_date.year++;
+          }
+          lv_calendar_set_showed_date(ui_calendar, new_date.year,
+                                      new_date.month);
+          updateCalendarTitle();
+        } else {
+          // Prev Month
+          const lv_calendar_date_t *d =
+              lv_calendar_get_showed_date(ui_calendar);
+          lv_calendar_date_t new_date = *d;
+          new_date.month--;
+          if (new_date.month < 1) {
+            new_date.month = 12;
+            new_date.year--;
+          }
+          lv_calendar_set_showed_date(ui_calendar, new_date.year,
+                                      new_date.month);
+          updateCalendarTitle();
+        }
+        last_handled_pos = current_pos;
+      }
     } else {
       last_handled_pos = current_pos; // Absorb events
     }
@@ -1011,30 +1078,37 @@ void loop() {
     pet.onAppLeave();
     reader.onAppLeave();
 
-    lv_obj_t *target = ui_watch_digital; // Default
-
     switch (current_app_index) {
     case 0:
-      target = ui_watch_digital;
+      _ui_screen_change(&ui_watch_digital, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_watch_digital_screen_init);
       break;
     case 1:
-      target = ui_watch_analog;
+      _ui_screen_change(&ui_watch_analog, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_watch_analog_screen_init);
       break;
     case 2:
-      target = ui_pet_screen;
       pet.onAppEnter();
+      _ui_screen_change(&ui_pet_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, NULL);
       break;
     case 3:
-      target = ui_weather_1;
+      _ui_screen_change(&ui_weather_1, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_weather_1_screen_init);
       break;
     case 4:
-      target = ui_reader_screen;
+      _ui_screen_change(&ui_weather_2, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_weather_2_screen_init);
+      break;
+    case 5:
       reader.onAppEnter();
+      _ui_screen_change(&ui_reader_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        NULL);
+      break;
+    case 6:
+      _ui_screen_change(&ui_calendar_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_calendar_screen_init);
       break;
     }
-
-    if (target)
-      _ui_screen_change(&target, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, NULL);
 
     last_handled_pos = current_pos;
   }
@@ -1096,18 +1170,7 @@ void encoder_init() {
 }
 
 // Order of screens
-lv_obj_t *screens[] = {
-    NULL, // ui_watch_digital
-    NULL, // ui_watch_analog
-    NULL, // ui_pet_screen (added)
-    NULL, // ui_weather_1
-    NULL, // ui_weather_2
-    NULL, // ui_blood_oxy
-    NULL, // ui_ecg
-    NULL, // ui_blood_pressure
-    NULL, // ui_measuring
-    NULL  // ui_call
-};
+// lv_obj_t *screens[] definition moved to top of file
 
 void perform_screen_switch(int dir) {
   lv_obj_t *acts = lv_scr_act();
@@ -1121,8 +1184,9 @@ void perform_screen_switch(int dir) {
       _ui_screen_change(&ui_watch_analog, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
                         &ui_watch_analog_screen_init);
     else
-      _ui_screen_change(&ui_weather_1, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
-                        &ui_weather_1_screen_init);
+      _ui_screen_change(
+          &ui_calendar_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+          &ui_calendar_screen_init); // Left from Digital -> Calendar
   } else if (acts == ui_watch_analog) {
     if (dir > 0) {
       pet.onAppEnter();
@@ -1145,12 +1209,32 @@ void perform_screen_switch(int dir) {
     else
       _ui_screen_change(&ui_pet_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, NULL);
   } else if (acts == ui_weather_2) {
+    if (dir > 0) {
+      reader.onAppEnter();
+      _ui_screen_change(&ui_reader_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        NULL);
+    } else
+      _ui_screen_change(&ui_weather_1, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_weather_1_screen_init);
+  } else if (acts == ui_reader_screen) {
+    if (dir > 0)
+      _ui_screen_change(&ui_calendar_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_calendar_screen_init);
+    else {
+      // Reader has no onAppLeave logic needed here as it handles itself, but to
+      // be safe:
+      _ui_screen_change(&ui_weather_2, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        &ui_weather_2_screen_init);
+    }
+  } else if (acts == ui_calendar_screen) {
     if (dir > 0)
       _ui_screen_change(&ui_watch_digital, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
                         &ui_watch_digital_screen_init);
-    else
-      _ui_screen_change(&ui_weather_1, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
-                        &ui_weather_1_screen_init);
+    else {
+      reader.onAppEnter(); // Re-enter reader if going back
+      _ui_screen_change(&ui_reader_screen, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
+                        NULL);
+    }
   } else {
     _ui_screen_change(&ui_watch_digital, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0,
                       &ui_watch_digital_screen_init);

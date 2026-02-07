@@ -230,4 +230,4 @@
  ui_comp_buttonround.h ui_comp_buttontop.h ui_comp_dailymissiongroup.h \
  ui_comp_dategroup.h ui_comp_forecastgroup.h ui_comp_pulsegroup.h \
  ui_comp_stepgroup.h ui_comp_titlegroup.h ui_comp_todayweathergroup.h \
- ui_comp_weathergroup1.h ui_comp_hook.h ui_events.h
+ ui_comp_weathergroup1.h ui_comp_hook.h ui_events.h ui/ui_calendar.h

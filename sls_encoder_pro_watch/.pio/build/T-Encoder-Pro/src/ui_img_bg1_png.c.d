@@ -226,8 +226,9 @@
  .pio/libdeps/T-Encoder-Pro/lvgl/src/extra/widgets/imgbtn/../../../lvgl.h \
  .pio/libdeps/T-Encoder-Pro/lvgl/src/extra/widgets/span/lv_span.h \
  .pio/libdeps/T-Encoder-Pro/lvgl/src/extra/widgets/span/../../../lvgl.h \
- ui_helpers.h ui_comp.h ui_comp_batterygroup.h ui_comp_buttondown.h \
+ ui_comp.h ui_comp_batterygroup.h ui_comp_buttondown.h \
  ui_comp_buttonround.h ui_comp_buttontop.h ui_comp_dailymissiongroup.h \
  ui_comp_dategroup.h ui_comp_forecastgroup.h ui_comp_pulsegroup.h \
  ui_comp_stepgroup.h ui_comp_titlegroup.h ui_comp_todayweathergroup.h \
- ui_comp_weathergroup1.h ui_comp_hook.h ui_events.h
+ ui_comp_weathergroup1.h ui_comp_hook.h ui_events.h ui_helpers.h \
+ ui/ui_calendar.h
