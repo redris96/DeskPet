@@ -110,6 +110,12 @@ void ui_calendar_screen_init(void) {
 
   // Deep Dive: Apply Styles to Underlying BtnMatrix
   lv_obj_t *calendar_btnm = lv_calendar_get_btnmatrix(ui_calendar);
+
+  // FIX: Apply transparent style to the matrix background (The "Bigger White
+  // Background")
+  lv_obj_add_style(calendar_btnm, &style_calendar_main, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(calendar_btnm, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
   lv_obj_add_style(calendar_btnm, &style_calendar_items, LV_PART_ITEMS);
 
   // Ensure 'Today' uses the red circle.
